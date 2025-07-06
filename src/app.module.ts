@@ -8,6 +8,7 @@ import { PlanosModule } from './planos/planos.module';
 import 'dotenv/config';
 import * as dotenv from 'dotenv';
 import { ConfigModule } from '@nestjs/config';
+import { MailModule } from './mail/mail.module';
 
 
 
@@ -21,7 +22,7 @@ const URL = process.env.MONGODB ?? '';
     ConfigModule.forRoot({
       isGlobal: true, // Hace que las variables de entorno estén disponibles en toda la app
     }),
-ProductosModule, CategoriaModule, PlanosModule],
+ProductosModule, CategoriaModule, PlanosModule, MailModule],
   controllers: [AppController],
   providers: [AppService],
 })

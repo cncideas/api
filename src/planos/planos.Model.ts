@@ -8,7 +8,7 @@ export const PlanosSchema = new mongoose.Schema({
   tipo_maquina: { type: String, required: true },
 
   archivo: { type: Buffer, required: true },
-  preview: { type: [Number], default: [] },
+  preview: { type: [Number],  },
   total_paginas: { type: Number, required: true },
   precio: { type: Number, required: true, min: 0 },
   descripcion_preview: { type: String, required: true },
