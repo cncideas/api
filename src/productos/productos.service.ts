@@ -1,10 +1,8 @@
-
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { IProductos } from './productos.model';
 import { ProductosDto } from './productos.dto';
-import { Multer } from 'multer';
 
 @Injectable()
 export class ProductosService {
@@ -12,12 +10,12 @@ export class ProductosService {
     @InjectModel('Productos') private readonly productosModel: Model<IProductos>,
   ) {}
 
-  // Crear producto con imagen
-  async create(productosDto: ProductosDto, imageFile?:Express.Multer.File): Promise<IProductos> {
+  // Crear producto con múltiples imágenes
+  async create(productosDto: ProductosDto, imageFiles?: Express.Multer.File[]): Promise<IProductos> {
     try {
       const productData = {
         ...productosDto,
-        imagen: imageFile ? imageFile.buffer : null,
+        imagenes: imageFiles ? imageFiles.map(file => file.buffer) : [],
       };
 
       const nuevoProducto = new this.productosModel(productData);
@@ -32,7 +30,7 @@ export class ProductosService {
     try {
       return await this.productosModel
         .find()
-        .select('-imagen') // Excluir imagen para optimizar la consulta
+        .select('-imagenes') // Excluir imágenes para optimizar la consulta
         .populate('categoria')
         .exec();
     } catch (error) {
@@ -68,7 +66,9 @@ export class ProductosService {
         categoria: producto.categoria,
         caracteristicas: producto.caracteristicas,
         cantidad: producto.cantidad,
-        imagen: producto.imagen ? `data:image/jpeg;base64,${producto.imagen.toString('base64')}` : null,
+        imagenes: producto.imagenes ? producto.imagenes.map(imagen => 
+          `data:image/jpeg;base64,${imagen.toString('base64')}`
+        ) : [],
       }));
     } catch (error) {
       throw new BadRequestException(`Error al obtener productos para frontend: ${error.message}`);
@@ -103,7 +103,9 @@ export class ProductosService {
         categoria: producto.categoria,
         caracteristicas: producto.caracteristicas,
         cantidad: producto.cantidad,
-        imagen: producto.imagen ? `data:image/jpeg;base64,${producto.imagen.toString('base64')}` : null,
+        imagenes: producto.imagenes ? producto.imagenes.map(imagen => 
+          `data:image/jpeg;base64,${imagen.toString('base64')}`
+        ) : [],
       }));
 
       return {
@@ -117,36 +119,38 @@ export class ProductosService {
     }
   }
 
- // Obtener producto por ID (ahora siempre con imagen en base64 para consistencia)
-async findOne(id: string): Promise<any> {
-  try {
-    const producto = await this.productosModel
-      .findById(id)
-      .populate('categoria')
-      .exec();
+  // Obtener producto por ID (ahora siempre con imágenes en base64 para consistencia)
+  async findOne(id: string): Promise<any> {
+    try {
+      const producto = await this.productosModel
+        .findById(id)
+        .populate('categoria')
+        .exec();
 
-    if (!producto) {
-      throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      if (!producto) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      return {
+        _id: producto._id,
+        nombre: producto.nombre,
+        descripcion: producto.descripcion,
+        precio: producto.precio,
+        categoria: producto.categoria,
+        caracteristicas: producto.caracteristicas,
+        cantidad: producto.cantidad,
+        imagenes: producto.imagenes ? producto.imagenes.map(imagen => 
+          `data:image/jpeg;base64,${imagen.toString('base64')}`
+        ) : [],
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(`Error al obtener producto: ${error.message}`);
     }
-
-    // Devolver en el mismo formato que findAllForFrontend para consistencia
-    return {
-      _id: producto._id,
-      nombre: producto.nombre,
-      descripcion: producto.descripcion,
-      precio: producto.precio,
-      categoria: producto.categoria,
-      caracteristicas: producto.caracteristicas,
-      cantidad: producto.cantidad,
-      imagen: producto.imagen ? `data:image/jpeg;base64,${producto.imagen.toString('base64')}` : null,
-    };
-  } catch (error) {
-    if (error instanceof NotFoundException) throw error;
-    throw new BadRequestException(`Error al obtener producto: ${error.message}`);
   }
-}
-  // Obtener producto por ID con imagen
-  async findOneWithImage(id: string): Promise<IProductos> {
+
+  // Obtener producto por ID con imágenes
+  async findOneWithImages(id: string): Promise<IProductos> {
     try {
       const producto = await this.productosModel
         .findById(id)
@@ -160,41 +164,66 @@ async findOne(id: string): Promise<any> {
       return producto;
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(`Error al obtener producto con imagen: ${error.message}`);
+      throw new BadRequestException(`Error al obtener producto con imágenes: ${error.message}`);
     }
   }
 
-  // Obtener solo la imagen de un producto
-  async getProductImage(id: string): Promise<Buffer> {
+  // Obtener imagen específica de un producto por índice
+  async getProductImage(id: string, index: number): Promise<Buffer> {
     try {
       const producto = await this.productosModel
         .findById(id)
-        .select('imagen')
+        .select('imagenes')
         .exec();
 
       if (!producto) {
         throw new NotFoundException(`Producto con ID ${id} no encontrado`);
       }
 
-      if (!producto.imagen) {
-        throw new NotFoundException(`El producto no tiene imagen`);
+      if (!producto.imagenes || producto.imagenes.length === 0) {
+        throw new NotFoundException(`El producto no tiene imágenes`);
       }
 
-      return producto.imagen;
+      if (index >= producto.imagenes.length) {
+        throw new NotFoundException(`Índice de imagen ${index} fuera de rango`);
+      }
+
+      return producto.imagenes[index];
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(`Error al obtener imagen: ${error.message}`);
     }
   }
 
+  // Obtener todas las imágenes de un producto en base64
+  async getAllProductImages(id: string): Promise<string[]> {
+    try {
+      const producto = await this.productosModel
+        .findById(id)
+        .select('imagenes')
+        .exec();
+
+      if (!producto) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      return producto.imagenes ? producto.imagenes.map(imagen => 
+        `data:image/jpeg;base64,${imagen.toString('base64')}`
+      ) : [];
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(`Error al obtener imágenes: ${error.message}`);
+    }
+  }
+
   // Actualizar producto
-  async update(id: string, updateProductosDto: Partial<ProductosDto>, imageFile?:Express.Multer.File): Promise<IProductos> {
+  async update(id: string, updateProductosDto: Partial<ProductosDto>, imageFiles?: Express.Multer.File[]): Promise<IProductos> {
     try {
       const updateData = { ...updateProductosDto };
       
-      // Si se proporciona una nueva imagen, agregarla a los datos de actualización
-      if (imageFile) {
-        updateData.imagen = imageFile.buffer;
+      // Si se proporcionan nuevas imágenes, reemplazar las existentes
+      if (imageFiles && imageFiles.length > 0) {
+        updateData.imagenes = imageFiles.map(file => file.buffer);
       }
 
       const productoActualizado = await this.productosModel
@@ -213,13 +242,43 @@ async findOne(id: string): Promise<any> {
     }
   }
 
-  // Actualizar solo la imagen
-  async updateImage(id: string, imageFile:Express.Multer.File): Promise<IProductos> {
+  // Agregar nuevas imágenes sin reemplazar las existentes
+  async addImages(id: string, imageFiles: Express.Multer.File[]): Promise<IProductos | null> {
     try {
+      const producto = await this.productosModel.findById(id).exec();
+      
+      if (!producto) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      const nuevasImagenes = imageFiles.map(file => file.buffer);
+      const imagenesActualizadas = [...(producto.imagenes || []), ...nuevasImagenes];
+
       const productoActualizado = await this.productosModel
         .findByIdAndUpdate(
           id, 
-          { imagen: imageFile.buffer }, 
+          { imagenes: imagenesActualizadas }, 
+          { new: true }
+        )
+        .populate('categoria')
+        .exec();
+
+      return productoActualizado;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(`Error al agregar imágenes: ${error.message}`);
+    }
+  }
+
+  // Reemplazar todas las imágenes
+  async replaceAllImages(id: string, imageFiles: Express.Multer.File[]): Promise<IProductos> {
+    try {
+      const nuevasImagenes = imageFiles.map(file => file.buffer);
+      
+      const productoActualizado = await this.productosModel
+        .findByIdAndUpdate(
+          id, 
+          { imagenes: nuevasImagenes }, 
           { new: true }
         )
         .populate('categoria')
@@ -232,30 +291,65 @@ async findOne(id: string): Promise<any> {
       return productoActualizado;
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
-      throw new BadRequestException(`Error al actualizar imagen: ${error.message}`);
+      throw new BadRequestException(`Error al reemplazar imágenes: ${error.message}`);
     }
   }
 
-  // Eliminar imagen de un producto
-  async removeImage(id: string): Promise<IProductos> {
+  // Eliminar una imagen específica por índice
+  async removeImage(id: string, index: number): Promise<IProductos | null> {
     try {
+      const producto = await this.productosModel.findById(id).exec();
+      
+      if (!producto) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      if (!producto.imagenes || producto.imagenes.length === 0) {
+        throw new NotFoundException(`El producto no tiene imágenes`);
+      }
+
+      if (index >= producto.imagenes.length) {
+        throw new NotFoundException(`Índice de imagen ${index} fuera de rango`);
+      }
+
+      const imagenesActualizadas = producto.imagenes.filter((_, i) => i !== index);
+
       const productoActualizado = await this.productosModel
         .findByIdAndUpdate(
           id, 
-          { $unset: { imagen: 1 } }, 
+          { imagenes: imagenesActualizadas }, 
           { new: true }
         )
         .populate('categoria')
         .exec();
-
-      if (!productoActualizado) {
-        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
-      }
 
       return productoActualizado;
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new BadRequestException(`Error al eliminar imagen: ${error.message}`);
+    }
+  }
+
+  // Eliminar todas las imágenes de un producto
+  async removeAllImages(id: string): Promise<IProductos> {
+    try {
+      const productoActualizado = await this.productosModel
+        .findByIdAndUpdate(
+          id, 
+          { imagenes: [] }, 
+          { new: true }
+        )
+        .populate('categoria')
+        .exec();
+
+      if (!productoActualizado) {
+        throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+      }
+
+      return productoActualizado;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new BadRequestException(`Error al eliminar imágenes: ${error.message}`);
     }
   }
 
@@ -278,7 +372,7 @@ async findOne(id: string): Promise<any> {
     try {
       return await this.productosModel
         .find({ nombre: { $regex: nombre, $options: 'i' } })
-        .select('-imagen')
+        .select('-imagenes')
         .populate('categoria')
         .exec();
     } catch (error) {
@@ -291,7 +385,7 @@ async findOne(id: string): Promise<any> {
     try {
       return await this.productosModel
         .find({ categoria: categoriaId })
-        .select('-imagen')
+        .select('-imagenes')
         .populate('categoria')
         .exec();
     } catch (error) {
@@ -312,7 +406,7 @@ async findOne(id: string): Promise<any> {
       const [productos, total] = await Promise.all([
         this.productosModel
           .find()
-          .select('-imagen')
+          .select('-imagenes')
           .populate('categoria')
           .skip(skip)
           .limit(limit)

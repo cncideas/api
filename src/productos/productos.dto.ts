@@ -1,12 +1,11 @@
 import { ICategoria } from "src/categoria/categoria.model";
 
 export class ProductosDto {
-
-    nombre:string;
-    descripcion:string;
+    nombre: string;
+    descripcion: string;
     precio: number;
-    imagen: Buffer;
+    imagenes: Buffer[]; // Cambio: Array de Buffer para múltiples imágenes
     categoria: ICategoria;
-    caracteristicas: [string];
+    caracteristicas: string;
     cantidad: number
 }

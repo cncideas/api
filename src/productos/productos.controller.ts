@@ -7,12 +7,13 @@ import {
   Param,
   Delete,
   UseInterceptors,
+  UploadedFiles,
   UploadedFile,
   Res,
   Query,
   BadRequestException,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { Multer } from 'multer';
 import { ProductosService } from './productos.service';
@@ -22,14 +23,14 @@ import { ProductosDto } from './productos.dto';
 export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
 
-  // Crear producto con imagen
+  // Crear producto con múltiples imágenes
   @Post()
-  @UseInterceptors(FileInterceptor('imagen', {
+  @UseInterceptors(FilesInterceptor('imagenes', 10, { // Máximo 10 imágenes
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB máximo
+      fileSize: 5 * 1024 * 1024, // 5MB máximo por imagen
     },
     fileFilter: (req, file, callback) => {
-      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
         return callback(new BadRequestException('Solo se permiten archivos de imagen'), false);
       }
       callback(null, true);
@@ -37,9 +38,9 @@ export class ProductosController {
   }))
   async create(
     @Body() productosDto: ProductosDto,
-    @UploadedFile() imagen?: Express.Multer.File,
+    @UploadedFiles() imagenes?: Express.Multer.File[],
   ) {
-    return this.productosService.create(productosDto, imagen);
+    return this.productosService.create(productosDto, imagenes);
   }
 
   // Obtener todos los productos (sin imágenes)
@@ -96,14 +97,19 @@ export class ProductosController {
     return this.productosService.findByCategory(categoriaId);
   }
 
-  // Obtener imagen de un producto
-  @Get(':id/imagen')
-  async getImage(@Param('id') id: string, @Res() res: Response) {
+  // Obtener imagen específica de un producto por índice
+  @Get(':id/imagen/:index')
+  async getImage(@Param('id') id: string, @Param('index') index: string, @Res() res: Response) {
     try {
-      const imageBuffer = await this.productosService.getProductImage(id);
+      const imageIndex = parseInt(index, 10);
+      if (isNaN(imageIndex) || imageIndex < 0) {
+        throw new BadRequestException('El índice debe ser un número válido');
+      }
+      
+      const imageBuffer = await this.productosService.getProductImage(id, imageIndex);
       
       res.set({
-        'Content-Type': 'image/jpeg', // Puedes hacer esto más dinámico
+        'Content-Type': 'image/jpeg',
         'Content-Length': imageBuffer.length.toString(),
       });
       
@@ -113,26 +119,32 @@ export class ProductosController {
     }
   }
 
+  // Obtener todas las imágenes de un producto
+  @Get(':id/imagenes')
+  async getAllImages(@Param('id') id: string) {
+    return this.productosService.getAllProductImages(id);
+  }
+
   // Obtener producto por ID
   @Get(':id')
   async findOne(
     @Param('id') id: string,
-    @Query('withImage') withImage?: string,
+    @Query('withImages') withImages?: string,
   ) {
-    if (withImage === 'true') {
-      return this.productosService.findOneWithImage(id);
+    if (withImages === 'true') {
+      return this.productosService.findOneWithImages(id);
     }
     return this.productosService.findOne(id);
   }
 
   // Actualizar producto
   @Patch(':id')
-  @UseInterceptors(FileInterceptor('imagen', {
+  @UseInterceptors(FilesInterceptor('imagenes', 10, {
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB máximo
+      fileSize: 5 * 1024 * 1024, // 5MB máximo por imagen
     },
     fileFilter: (req, file, callback) => {
-      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
         return callback(new BadRequestException('Solo se permiten archivos de imagen'), false);
       }
       callback(null, true);
@@ -141,38 +153,71 @@ export class ProductosController {
   async update(
     @Param('id') id: string,
     @Body() updateProductosDto: Partial<ProductosDto>,
-    @UploadedFile() imagen?: Express.Multer.File,
+    @UploadedFiles() imagenes?: Express.Multer.File[],
   ) {
-    return this.productosService.update(id, updateProductosDto, imagen);
+    return this.productosService.update(id, updateProductosDto, imagenes);
   }
 
-  // Actualizar solo la imagen
-  @Patch(':id/imagen')
-  @UseInterceptors(FileInterceptor('imagen', {
+  // Agregar nuevas imágenes sin reemplazar las existentes
+  @Post(':id/imagenes')
+  @UseInterceptors(FilesInterceptor('imagenes', 10, {
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB máximo
+      fileSize: 5 * 1024 * 1024, // 5MB máximo por imagen
     },
     fileFilter: (req, file, callback) => {
-      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif)$/)) {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
         return callback(new BadRequestException('Solo se permiten archivos de imagen'), false);
       }
       callback(null, true);
     },
   }))
-  async updateImage(
+  async addImages(
     @Param('id') id: string,
-    @UploadedFile() imagen: Express.Multer.File,
+    @UploadedFiles() imagenes: Express.Multer.File[],
   ) {
-    if (!imagen) {
-      throw new BadRequestException('La imagen es requerida');
+    if (!imagenes || imagenes.length === 0) {
+      throw new BadRequestException('Se requiere al menos una imagen');
     }
-    return this.productosService.updateImage(id, imagen);
+    return this.productosService.addImages(id, imagenes);
   }
 
-  // Eliminar imagen
-  @Delete(':id/imagen')
-  async removeImage(@Param('id') id: string) {
-    return this.productosService.removeImage(id);
+  // Reemplazar todas las imágenes
+  @Patch(':id/imagenes')
+  @UseInterceptors(FilesInterceptor('imagenes', 10, {
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB máximo por imagen
+    },
+    fileFilter: (req, file, callback) => {
+      if (!file.mimetype.match(/\/(jpg|jpeg|png|gif|webp)$/)) {
+        return callback(new BadRequestException('Solo se permiten archivos de imagen'), false);
+      }
+      callback(null, true);
+    },
+  }))
+  async replaceAllImages(
+    @Param('id') id: string,
+    @UploadedFiles() imagenes: Express.Multer.File[],
+  ) {
+    if (!imagenes || imagenes.length === 0) {
+      throw new BadRequestException('Se requiere al menos una imagen');
+    }
+    return this.productosService.replaceAllImages(id, imagenes);
+  }
+
+  // Eliminar una imagen específica por índice
+  @Delete(':id/imagen/:index')
+  async removeImage(@Param('id') id: string, @Param('index') index: string) {
+    const imageIndex = parseInt(index, 10);
+    if (isNaN(imageIndex) || imageIndex < 0) {
+      throw new BadRequestException('El índice debe ser un número válido');
+    }
+    return this.productosService.removeImage(id, imageIndex);
+  }
+
+  // Eliminar todas las imágenes
+  @Delete(':id/imagenes')
+  async removeAllImages(@Param('id') id: string) {
+    return this.productosService.removeAllImages(id);
   }
 
   // Eliminar producto
